@@ -56,15 +56,33 @@ Open `http://localhost:3000`.
 5. Set variables:
    - `DATABASE_URL` from Railway PostgreSQL
    - `JWT_SECRET`
-   - `OPENAI_API_KEY`
+   - `AI_PROVIDER=gemini`
+   - `GEMINI_API_KEY`
+   - `GEMINI_MODEL=gemini-2.5-flash`
+   - `OPENAI_API_KEY` if you want to use OpenAI instead
    - `OPENAI_MODEL=gpt-5.4-mini`
 6. Run `npm run db:init` once from Railway shell or local machine using Railway's `DATABASE_URL`.
 7. Deploy. Railway will run `npm run build` and `npm start`.
 
-## OpenAI
+## AI Provider
 
-The app uses the OpenAI JavaScript SDK and the Responses API with Structured Outputs. The AI endpoints request strict JSON for:
+The app can use Gemini or OpenAI. For the free-tier-friendly MVP, use Gemini:
+
+```bash
+AI_PROVIDER=gemini
+GEMINI_API_KEY=...
+GEMINI_MODEL=gemini-2.5-flash
+```
+
+To use OpenAI instead:
+
+```bash
+AI_PROVIDER=openai
+OPENAI_API_KEY=...
+OPENAI_MODEL=gpt-5.4-mini
+```
+
+The AI endpoints request strict JSON for:
 
 - wrong question analysis
 - daily learning plan
-

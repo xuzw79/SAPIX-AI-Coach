@@ -10,6 +10,7 @@
     "db:init": "node scripts/init-db.mjs"
   },
   "dependencies": {
+    "@google/genai": "^2.10.0",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/pg": "^8.15.5",
     "bcryptjs": "^3.0.2",
