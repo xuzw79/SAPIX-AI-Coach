@@ -4,6 +4,47 @@ import { generateDailyPlan } from "@/lib/openai";
 import { badRequest, ok, requiredString, serverError } from "@/lib/http";
 import type { Child, Test, WrongQuestion } from "@/lib/types";
 
+function fallbackPlan(input: {
+  weakness: Array<{ unit: string; count: string }>;
+  wrongQuestions: WrongQuestion[];
+  tests: Test[];
+}) {
+  const topWeakness = input.weakness
+    .filter((item) => item.unit !== "未分類")
+    .slice(0, 3);
+  const recentSubjects = input.wrongQuestions.reduce<Record<string, number>>(
+    (memo, question) => {
+      memo[question.subject] = (memo[question.subject] || 0) + 1;
+      return memo;
+    },
+    {}
+  );
+  const mainSubject =
+    Object.entries(recentSubjects).sort((a, b) => b[1] - a[1])[0]?.[0] ||
+    "算数";
+
+  const items = topWeakness.map((item, index) => ({
+    subject:
+      input.wrongQuestions.find((question) => question.unit === item.unit)
+        ?.subject || mainSubject,
+    unit: item.unit,
+    minutes: index === 0 ? 40 : 20,
+    reason: `AI APIの利用枠不足のため、錯題数に基づく暫定計画です。最近の錯題が${item.count}題あります。`
+  }));
+
+  if (items.length === 0) {
+    items.push({
+      subject: mainSubject,
+      unit: "錯題復習",
+      minutes: 40,
+      reason:
+        "AI APIの利用枠不足のため、暫定計画です。直近の錯題を優先して復習してください。"
+    });
+  }
+
+  return { today_plan: items };
+}
+
 export async function POST(request: Request) {
   try {
     const user = await requireUser();
@@ -39,16 +80,30 @@ export async function POST(request: Request) {
       [childId]
     );
 
-    const plan = await generateDailyPlan({
+    const planInput = {
       child,
       recent_tests: tests.rows,
       wrong_questions_count: wrongQuestions.rowCount,
       recent_wrong_questions: wrongQuestions.rows,
       weakness_units: weakness.rows,
       next_test_date: nextTestDate
-    });
+    };
 
-    return ok({ plan });
+    try {
+      const plan = await generateDailyPlan(planInput);
+      return ok({ plan });
+    } catch (error) {
+      console.error("OpenAI plan generation failed. Returning fallback plan.", error);
+      return ok({
+        plan: fallbackPlan({
+          weakness: weakness.rows,
+          wrongQuestions: wrongQuestions.rows,
+          tests: tests.rows
+        }),
+        warning:
+          "OpenAI APIの利用枠不足または一時的なエラーのため、暫定計画を表示しています。"
+      });
+    }
   } catch (error) {
     return serverError(error);
   }
