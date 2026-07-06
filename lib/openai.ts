@@ -88,6 +88,23 @@ function geminiClient() {
   return new GoogleGenAI({ apiKey });
 }
 
+function parseJsonResponse<T>(text: string) {
+  const trimmed = text.trim();
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  const candidate = fenced?.[1]?.trim() || trimmed;
+
+  try {
+    return JSON.parse(candidate) as T;
+  } catch {
+    const objectStart = candidate.indexOf("{");
+    const objectEnd = candidate.lastIndexOf("}");
+    if (objectStart >= 0 && objectEnd > objectStart) {
+      return JSON.parse(candidate.slice(objectStart, objectEnd + 1)) as T;
+    }
+    throw new Error(`AI response was not valid JSON: ${candidate.slice(0, 120)}`);
+  }
+}
+
 async function generateGeminiJson<T>(input: {
   model: string;
   instruction: string;
@@ -95,29 +112,36 @@ async function generateGeminiJson<T>(input: {
   schema: Record<string, unknown>;
 }) {
   const client = geminiClient();
-  const interaction = await client.interactions.create({
+  const response = await client.models.generateContent({
     model: input.model,
-    input: `${input.instruction}\n\n入力データ:\n${JSON.stringify(input.payload)}`,
-    response_format: {
-      type: "text",
-      mime_type: "application/json",
-      schema: input.schema
+    contents: [
+      input.instruction,
+      "Return only valid JSON. Do not wrap it in Markdown.",
+      "All user-facing Japanese text should be natural and concise.",
+      "Input data:",
+      JSON.stringify(input.payload)
+    ].join("\n\n"),
+    config: {
+      responseMimeType: "application/json",
+      responseJsonSchema: input.schema
     }
   });
 
-  if (!interaction.output_text) {
+  if (!response.text) {
     throw new Error("Gemini returned an empty response.");
   }
 
-  return JSON.parse(interaction.output_text) as T;
+  return parseJsonResponse<T>(response.text);
 }
 
 export async function analyzeWrongQuestion(input: unknown) {
+  const instruction =
+    "You are a Japanese junior high school entrance exam learning coach, especially familiar with SAPIX. Analyze the wrong question for a parent. Return unit, difficulty, mistake reason, parent explanation, review advice, and next review days as JSON.";
+
   if (aiProvider() === "gemini") {
     return generateGeminiJson<WrongQuestionAnalysis>({
       model: geminiModel,
-      instruction:
-        "あなたは日本の中学受験、特にSAPIXに詳しい学習コーチです。保護者向けに、錯題の単元、難度、誤因、復習助言を短く具体的に分析してください。出力は必ず指定JSONにしてください。",
+      instruction,
       payload: input,
       schema: wrongQuestionSchema
     });
@@ -125,8 +149,7 @@ export async function analyzeWrongQuestion(input: unknown) {
 
   const response = await openai.responses.create({
     model,
-    instructions:
-      "あなたは日本の中学受験、特にSAPIXに詳しい学習コーチです。保護者向けに、錯題の単元、難度、誤因、復習助言を短く具体的に分析してください。出力は必ず指定JSONにしてください。",
+    instructions: instruction,
     input: JSON.stringify(input),
     text: {
       format: {
@@ -143,11 +166,13 @@ export async function analyzeWrongQuestion(input: unknown) {
 }
 
 export async function generateDailyPlan(input: unknown) {
+  const instruction =
+    "You are an AI learning coach for Japanese junior high school entrance exam families. Based on grade, target schools, deviation scores, wrong questions, weakness units, and next test date, create only today's highest-priority study plan. Avoid adding too much new material. Emphasize weakness review. Return JSON only.";
+
   if (aiProvider() === "gemini") {
     return generateGeminiJson<DailyPlan>({
       model: geminiModel,
-      instruction:
-        "あなたは日本の中学受験家庭向けAI学習コーチです。子供の学年、志望校、偏差値、錯題、弱点、次回テスト日から、今日やるべき学習だけを優先順位順に作ってください。新しい教材を増やしすぎず、弱点復習を重視してください。出力は必ず指定JSONにしてください。",
+      instruction,
       payload: input,
       schema: dailyPlanSchema
     });
@@ -155,8 +180,7 @@ export async function generateDailyPlan(input: unknown) {
 
   const response = await openai.responses.create({
     model,
-    instructions:
-      "あなたは日本の中学受験家庭向けAI学習コーチです。子供の学年、志望校、偏差値、錯題、弱点、次回テスト日から、今日やるべき学習だけを優先順位順に作ってください。新しい教材を増やしすぎず、弱点復習を重視してください。出力は必ず指定JSONにしてください。",
+    instructions: instruction,
     input: JSON.stringify(input),
     text: {
       format: {
