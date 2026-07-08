@@ -36,6 +36,11 @@ export async function POST(request: Request) {
     const body = await request.json();
     const childId = requiredString(body.child_id, "child_id");
     if (!(await ensureChildOwned(childId, user.id))) return badRequest("childId is invalid.");
+    const imageUrl = optionalString(body.image_url);
+    const sourceName = optionalString(body.source_name) || "画像アップロード";
+    const questionNo =
+      optionalString(body.question_no) ||
+      `photo-${new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}`;
 
     const result = await query<WrongQuestion>(
       `insert into wrong_questions
@@ -45,9 +50,9 @@ export async function POST(request: Request) {
       [
         childId,
         requiredString(body.subject, "subject"),
-        requiredString(body.source_name, "source_name"),
-        requiredString(body.question_no, "question_no"),
-        optionalString(body.image_url),
+        sourceName,
+        questionNo,
+        imageUrl,
         optionalString(body.unit),
         optionalString(body.mistake_reason)
       ]

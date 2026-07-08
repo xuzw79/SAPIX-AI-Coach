@@ -110,17 +110,25 @@ async function generateGeminiJson<T>(input: {
   instruction: string;
   payload: unknown;
   schema: Record<string, unknown>;
+  imageUrl?: string | null;
 }) {
   const client = geminiClient();
+  const text = [
+    input.instruction,
+    "Return only valid JSON. Do not wrap it in Markdown.",
+    "All user-facing Japanese text should be natural and concise.",
+    "Input data:",
+    JSON.stringify(input.payload)
+  ].join("\n\n");
+
+  const imagePart = dataUrlToGeminiPart(input.imageUrl);
+  const contents = imagePart
+    ? [{ role: "user", parts: [{ text }, imagePart] }]
+    : text;
+
   const response = await client.models.generateContent({
     model: input.model,
-    contents: [
-      input.instruction,
-      "Return only valid JSON. Do not wrap it in Markdown.",
-      "All user-facing Japanese text should be natural and concise.",
-      "Input data:",
-      JSON.stringify(input.payload)
-    ].join("\n\n"),
+    contents: contents as never,
     config: {
       responseMimeType: "application/json",
       responseJsonSchema: input.schema
@@ -134,6 +142,18 @@ async function generateGeminiJson<T>(input: {
   return parseJsonResponse<T>(response.text);
 }
 
+function dataUrlToGeminiPart(imageUrl?: string | null) {
+  if (!imageUrl?.startsWith("data:image/")) return null;
+  const match = imageUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+  if (!match) return null;
+  return {
+    inlineData: {
+      mimeType: match[1],
+      data: match[2]
+    }
+  };
+}
+
 export async function analyzeWrongQuestion(input: unknown) {
   const instruction =
     "You are a Japanese junior high school entrance exam learning coach, especially familiar with SAPIX. Analyze the wrong question for a parent. Return unit, difficulty, mistake reason, parent explanation, review advice, and next review days as JSON.";
@@ -143,7 +163,11 @@ export async function analyzeWrongQuestion(input: unknown) {
       model: geminiModel,
       instruction,
       payload: input,
-      schema: wrongQuestionSchema
+      schema: wrongQuestionSchema,
+      imageUrl:
+        typeof input === "object" && input && "image_url" in input
+          ? String((input as { image_url?: unknown }).image_url || "")
+          : null
     });
   }
 

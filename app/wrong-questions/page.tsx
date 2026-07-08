@@ -6,14 +6,23 @@ import { RequireAuth } from "@/components/RequireAuth";
 import { api } from "@/lib/client";
 import type { Child, WrongQuestion } from "@/lib/types";
 
+type WrongQuestionAnalysis = {
+  explanation_for_parent?: string;
+  review_advice?: string;
+};
+
+const maxImageBytes = 4 * 1024 * 1024;
+
 export default function WrongQuestionsPage() {
   const [children, setChildren] = useState<Child[]>([]);
   const [childId, setChildId] = useState("");
   const [wrongQuestions, setWrongQuestions] = useState<WrongQuestion[]>([]);
   const [analyzingId, setAnalyzingId] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
   const [form, setForm] = useState({
     subject: "算数",
-    source_name: "Weekly 第18回",
+    source_name: "",
     question_no: "",
     image_url: "",
     unit: "",
@@ -42,14 +51,49 @@ export default function WrongQuestionsPage() {
     loadWrongQuestions(childId);
   }, [childId]);
 
+  async function onImageSelected(file: File | undefined) {
+    setError("");
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("画像ファイルを選択してください。");
+      return;
+    }
+    if (file.size > maxImageBytes) {
+      setError("画像は4MB以下にしてください。");
+      return;
+    }
+
+    const dataUrl = await readFileAsDataUrl(file);
+    setForm((current) => ({ ...current, image_url: dataUrl }));
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
-    await api("/api/wrong-questions", {
+    setError("");
+    setMessage("");
+    if (!form.image_url) {
+      setError("錯題の写真を選択してください。");
+      return;
+    }
+
+    const data = await api<{ wrongQuestion: WrongQuestion }>("/api/wrong-questions", {
       method: "POST",
       body: JSON.stringify({ ...form, child_id: childId })
     });
-    setForm({ ...form, question_no: "", image_url: "", mistake_reason: "" });
+    setMessage("写真を保存しました。AI分析ボタンで単元と復習方針を生成できます。");
+    setForm({
+      subject: form.subject,
+      source_name: "",
+      question_no: "",
+      image_url: "",
+      unit: "",
+      mistake_reason: ""
+    });
     await loadWrongQuestions(childId);
+
+    if (data.wrongQuestion?.id) {
+      await analyze(data.wrongQuestion.id);
+    }
   }
 
   async function analyze(id: string) {
@@ -65,8 +109,8 @@ export default function WrongQuestionsPage() {
   return (
     <RequireAuth>
       <AppShell
-        title="錯題管理"
-        description="錯題を登録し、AIで単元・誤因・復習日を分析します。"
+        title="錯題アップロード"
+        description="錯題を写真で登録し、AIが単元・誤因・復習日を分析します。"
       >
         <div className="grid cols-main">
           <section className="panel">
@@ -75,12 +119,7 @@ export default function WrongQuestionsPage() {
               <p className="muted">まだ錯題がありません。</p>
             ) : null}
             {wrongQuestions.map((question) => {
-              const analysis = question.ai_analysis as
-                | {
-                    explanation_for_parent?: string;
-                    review_advice?: string;
-                  }
-                | null;
+              const analysis = question.ai_analysis as WrongQuestionAnalysis | null;
               return (
                 <div className="row" key={question.id}>
                   <div>
@@ -92,6 +131,19 @@ export default function WrongQuestionsPage() {
                       {question.difficulty || "-"} / 誤因:{" "}
                       {question.mistake_reason || "未分析"}
                     </div>
+                    {question.image_url ? (
+                      <img
+                        alt="錯題写真"
+                        src={question.image_url}
+                        style={{
+                          width: "100%",
+                          maxWidth: 260,
+                          marginTop: 10,
+                          borderRadius: 8,
+                          border: "1px solid var(--line)"
+                        }}
+                      />
+                    ) : null}
                     {analysis?.explanation_for_parent ? (
                       <p className="small">{analysis.explanation_for_parent}</p>
                     ) : null}
@@ -115,8 +167,10 @@ export default function WrongQuestionsPage() {
           </section>
 
           <section className="panel">
-            <h2>錯題登録</h2>
+            <h2>写真で登録</h2>
             <form className="form" onSubmit={submit}>
+              {message ? <div className="success">{message}</div> : null}
+              {error ? <div className="error">{error}</div> : null}
               <div className="field">
                 <label>子供</label>
                 <select
@@ -146,9 +200,32 @@ export default function WrongQuestionsPage() {
                 </select>
               </div>
               <div className="field">
-                <label>教材・テスト名</label>
+                <label>錯題写真</label>
                 <input
                   className="input"
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={(event) => onImageSelected(event.target.files?.[0])}
+                  required
+                />
+              </div>
+              {form.image_url ? (
+                <img
+                  alt="アップロード予定の錯題"
+                  src={form.image_url}
+                  style={{
+                    width: "100%",
+                    borderRadius: 8,
+                    border: "1px solid var(--line)"
+                  }}
+                />
+              ) : null}
+              <div className="field">
+                <label>教材・テスト名（任意）</label>
+                <input
+                  className="input"
+                  placeholder="例: Weekly 第18回"
                   value={form.source_name}
                   onChange={(event) =>
                     setForm({ ...form, source_name: event.target.value })
@@ -156,29 +233,22 @@ export default function WrongQuestionsPage() {
                 />
               </div>
               <div className="field">
-                <label>問題番号</label>
+                <label>問題番号（任意）</label>
                 <input
                   className="input"
+                  placeholder="例: 23"
                   value={form.question_no}
                   onChange={(event) =>
                     setForm({ ...form, question_no: event.target.value })
                   }
-                  required
-                />
-              </div>
-              <div className="field">
-                <label>画像URL（任意）</label>
-                <input
-                  className="input"
-                  value={form.image_url}
-                  onChange={(event) => setForm({ ...form, image_url: event.target.value })}
                 />
               </div>
               <div className="grid cols-2">
                 <div className="field">
-                  <label>単元（任意）</label>
+                  <label>単元メモ（任意）</label>
                   <input
                     className="input"
+                    placeholder="例: 割合"
                     value={form.unit}
                     onChange={(event) => setForm({ ...form, unit: event.target.value })}
                   />
@@ -187,6 +257,7 @@ export default function WrongQuestionsPage() {
                   <label>誤因メモ（任意）</label>
                   <input
                     className="input"
+                    placeholder="例: もとにする量を逆にした"
                     value={form.mistake_reason}
                     onChange={(event) =>
                       setForm({ ...form, mistake_reason: event.target.value })
@@ -194,11 +265,22 @@ export default function WrongQuestionsPage() {
                   />
                 </div>
               </div>
-              <button className="button">保存</button>
+              <button className="button" disabled={!childId || analyzingId !== ""}>
+                保存してAI分析
+              </button>
             </form>
           </section>
         </div>
       </AppShell>
     </RequireAuth>
   );
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 }
