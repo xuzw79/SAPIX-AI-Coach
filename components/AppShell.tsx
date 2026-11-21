@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 export function AppShell({
   title,
@@ -13,6 +13,7 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -34,6 +35,20 @@ export function AppShell({
           <Link href="/children">子供情報</Link>
           <Link href="/tests">成績入力</Link>
           <Link href="/wrong-questions">錯題管理</Link>
+          {[
+            ["math", "算数"],
+            ["japanese", "国語"],
+            ["science", "理科"],
+            ["social", "社会"]
+          ].map(([slug, label]) => (
+            <Link
+              key={slug}
+              href={`/subjects/${slug}`}
+              aria-current={pathname === `/subjects/${slug}` ? "page" : undefined}
+            >
+              {label}
+            </Link>
+          ))}
           <Link href="/plan">今日の計画</Link>
           <button onClick={logout}>ログアウト</button>
         </nav>
